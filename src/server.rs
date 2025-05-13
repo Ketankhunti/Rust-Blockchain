@@ -1,25 +1,27 @@
-use std::{io::{Read, Write}, net::TcpListener};
-
-use serde_json::from_str;
-
+use tokio::net::TcpListener;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use crate::{block::Block, blockchain::Blockchain};
-pub fn run_server() {
-    let listener = TcpListener::bind("127.0.0.1:6000").unwrap();
+
+pub async fn run_server() {
+    let listener = TcpListener::bind("127.0.0.1:6000").await.unwrap();
     let mut blockchain = Blockchain::new();
-    println!("Server is running on port 6000");
+    println!("🚀 Async server running on 6000");
 
-    for stream in listener.incoming() {
-        let mut stream = stream.unwrap();
+    loop {
+        let (mut socket, _) = listener.accept().await.unwrap();
+
         let mut buffer = [0; 1024];
-        let bytes_read = stream.read(&mut buffer).unwrap();
-        let buffer_str = String::from_utf8_lossy(&buffer[..bytes_read]);
+        let n = tokio::time::timeout(std::time::Duration::from_secs(5), socket.read(&mut buffer)).await.unwrap().unwrap();
 
-        let received_block: Block = from_str(&buffer_str).unwrap();
-        println!("Received block: {:#?}", received_block);
+        let buffer_str = String::from_utf8_lossy(&buffer[..n]);
+        let received_block: Block = serde_json::from_str(&buffer_str).unwrap();
+
+       // println!("📩 Received block: {:?}", received_block);
 
         let is_valid = {
-            let last_block = blockchain.blocks.last().unwrap();
-            received_block.previous_hash == last_block.hash &&
+            let last = blockchain.blocks.last().unwrap();
+           // println!("last: {:?}", last);
+            received_block.previous_hash == last.hash &&
             received_block.hash == Block::calculate_hash(
                 received_block.index,
                 received_block.timestamp,
@@ -29,31 +31,23 @@ pub fn run_server() {
         };
 
         if is_valid {
-
-            let last_block = blockchain.blocks.last().unwrap();
-
-            let new_block = Block::new(
-                last_block.index + 1,
+            println!("✅ Block valid. Appending to blockchain.");
+            // let index = blockchain.blocks.last().unwrap().index + 1;
+            let block = Block::new(
+                received_block.index,  // for now, will be chnaged later
                 received_block.timestamp,
                 received_block.data.clone(),
-                last_block.hash.clone()
+                blockchain.blocks.last().unwrap().hash.clone(),
             );
+            blockchain.add_block(block);
 
-            println!("✅ Valid block received! Adding to chain...");
-            blockchain.add_block(new_block);
-            let response: String = serde_json::to_string(&received_block).unwrap();
-            stream.write_all(response.as_bytes()).unwrap();
-          
+            println!("Blockchain: {:#?}", blockchain);
 
+            let response = serde_json::to_string(&received_block).unwrap();
+            socket.write_all(response.as_bytes()).await.unwrap();
         } else {
-            println!("❌ Invalid block received! Rejecting...");
-            let response = "Invalid block";
-            println!("Response: {}", response);
-            println!("last block: {:#?}", blockchain.blocks.last().unwrap());
-            stream.write_all(response.as_bytes()).unwrap();
-            stream.flush().unwrap();
+            println!("❌ Block invalid. Rejecting.");
+            socket.write_all(b"Invalid block").await.unwrap();
         }
-
-        println!("Blockchain length: {}", blockchain.blocks.len());
     }
 }

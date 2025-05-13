@@ -8,3 +8,4 @@ hex = "0.4.3"
 serde = { version = "1.0.219", features = ["derive"] }
 sha2 = "0.10.9"
 serde_json = "1.0.105"
+tokio = { version = "1.0", features = ["full"] }

@@ -7,7 +7,9 @@ use blockchain::Blockchain;
 use server::run_server;
 use std::thread;
 use client::run_client;
-fn main() {
+
+#[tokio::main]
+async fn main() {
    
    let _ = Blockchain::new();
 
@@ -16,5 +18,5 @@ fn main() {
     });
 
 
-   run_server();
+   run_server().await;
 }
